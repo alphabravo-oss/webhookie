@@ -10,6 +10,14 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	routingKeyLen = 32
+	maxSummary    = 1024
+	maxDedupKey   = 255
+	maxImages     = 8
+	maxLinks      = 8
+)
+
 type Sink struct{}
 
 func (Sink) Provider() string { return "pagerduty" }
@@ -36,53 +44,94 @@ func (Sink) Validate(r *http.Request, body []byte) sink.Validation {
 	if err != nil {
 		return sink.Validation{Errors: []store.ValidationError{{Path: "/", Message: "invalid json"}}}
 	}
+	var p sink.Problems
 	rk, _ := m["routing_key"].(string)
-	if len(rk) != 32 {
-		return sink.Validation{Errors: []store.ValidationError{{Path: "/routing_key", Message: "routing_key must be 32 characters"}}}
+	if len(rk) != routingKeyLen {
+		p.Add("/routing_key", "routing_key must be 32 characters")
 	}
 	if r.URL.Path == "/hooks/pagerduty/v2/change" {
 		payload, _ := m["payload"].(map[string]any)
+		if payload == nil {
+			p.Add("/payload", "required")
+			return p.Result()
+		}
 		sum, _ := payload["summary"].(string)
 		if strings.TrimSpace(sum) == "" {
-			return sink.Validation{Errors: []store.ValidationError{{Path: "/payload/summary", Message: "required"}}}
+			p.Add("/payload/summary", "required")
+		} else {
+			p.MaxRunes("/payload/summary", sum, maxSummary)
 		}
-		return sink.Validation{Valid: true}
+		return p.Result()
 	}
 	action, _ := m["event_action"].(string)
 	switch action {
 	case "trigger":
-		payload, _ := m["payload"].(map[string]any)
-		if payload == nil {
-			return sink.Validation{Errors: []store.ValidationError{{Path: "/payload", Message: "required"}}}
+		payload, ok := m["payload"].(map[string]any)
+		if !ok || payload == nil {
+			p.Add("/payload", "required")
+			break
 		}
 		sum, _ := payload["summary"].(string)
 		src, _ := payload["source"].(string)
 		sev, _ := payload["severity"].(string)
 		if strings.TrimSpace(sum) == "" {
-			return sink.Validation{Errors: []store.ValidationError{{Path: "/payload/summary", Message: "required"}}}
+			p.Add("/payload/summary", "required")
+		} else {
+			p.MaxRunes("/payload/summary", sum, maxSummary)
 		}
 		if strings.TrimSpace(src) == "" {
-			return sink.Validation{Errors: []store.ValidationError{{Path: "/payload/source", Message: "required"}}}
+			p.Add("/payload/source", "required")
 		}
 		switch sev {
 		case "info", "warning", "error", "critical":
 		default:
-			return sink.Validation{Errors: []store.ValidationError{{Path: "/payload/severity", Message: "must be info|warning|error|critical"}}}
+			p.Add("/payload/severity", "must be info|warning|error|critical")
 		}
 	case "acknowledge", "resolve":
-		if d, _ := m["dedup_key"].(string); strings.TrimSpace(d) == "" {
-			return sink.Validation{Errors: []store.ValidationError{{Path: "/dedup_key", Message: "required for acknowledge/resolve"}}}
+		d, _ := m["dedup_key"].(string)
+		if strings.TrimSpace(d) == "" {
+			p.Add("/dedup_key", "required for acknowledge/resolve")
+		} else {
+			p.MaxRunes("/dedup_key", d, maxDedupKey)
 		}
 	default:
-		return sink.Validation{Errors: []store.ValidationError{{Path: "/event_action", Message: "must be trigger|acknowledge|resolve"}}}
+		p.Add("/event_action", "must be trigger|acknowledge|resolve")
 	}
-	return sink.Validation{Valid: true}
+	if d, ok := m["dedup_key"].(string); ok && action == "trigger" {
+		p.MaxRunes("/dedup_key", d, maxDedupKey)
+	}
+	if raw, ok := m["images"]; ok && raw != nil {
+		arr, ok := p.RequireArray(raw, "/images")
+		if ok {
+			_ = p.MaxItems("/images", len(arr), maxImages)
+		}
+	}
+	if raw, ok := m["links"]; ok && raw != nil {
+		arr, ok := p.RequireArray(raw, "/links")
+		if ok {
+			_ = p.MaxItems("/links", len(arr), maxLinks)
+		}
+	}
+	return p.Result()
+}
+
+func pdErrorBody(v sink.Validation) string {
+	msgs := make([]string, 0, len(v.Errors))
+	for _, e := range v.Errors {
+		msgs = append(msgs, e.Path+" "+e.Message)
+	}
+	out, _ := json.Marshal(map[string]any{
+		"status":  "invalid event",
+		"message": "Event object is invalid",
+		"errors":  msgs,
+	})
+	return string(out)
 }
 
 func (s Sink) Respond(w http.ResponseWriter, r *http.Request, body []byte, _ store.Chaos) error {
 	v := s.Validate(r, body)
 	if !v.Valid {
-		sink.WriteJSON(w, http.StatusBadRequest, `{"status":"invalid event","message":"Event object is invalid"}`)
+		sink.WriteJSON(w, http.StatusBadRequest, pdErrorBody(v))
 		return nil
 	}
 	m, _ := parse(body)
@@ -118,7 +167,6 @@ func (Sink) Summarize(r *http.Request, body []byte) sink.Summary {
 	return sink.Summary{Text: sink.FirstN(sum, 80), GroupKey: key}
 }
 
-// DedupFromResponse extracts the generated key after Respond (via header).
 func DedupFromBody(body []byte, generated string) string {
 	m, _ := parse(body)
 	if k, _ := m["dedup_key"].(string); k != "" {

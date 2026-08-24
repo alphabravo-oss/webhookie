@@ -8,7 +8,7 @@ It is a **local and CI destination emulator**. It is not a production delivery g
 
 ## Sinks vs destinations vs sources
 
-- **Sinks** (inbound): your app POSTs to webhookie. We do a shallow validate, return the provider’s success/error envelope, and store the packet.
+- **Sinks** (inbound): your app POSTs to webhookie. We validate documented public-API rules (limits, enums, required children, Discord multipart files, Telegram HTML/Markdown/MarkdownV2, Adaptive Card element types; extra fields allowed), return the provider’s success/error envelope, and store the packet with JSON-pointer errors. Not Slack’s private validator and not Adaptive Card `additionalProperties: false`.
 - **Destinations**: operator UIs for Slack / Teams / Discord / Mattermost / Telegram / Google Chat (channels, chats, spaces) and PagerDuty / Opsgenie (services, teams). Each channel has a stable webhook URL. Messages render in a generic version of the tool. Button / Ack / Resolve / Close clicks record an interaction and optionally POST a provider-shaped payload to an Interactivity URL you set. The transcript then updates **locally**; we do not apply the handler’s HTTP response to the message.
 - **Inbox**: the packet log. Always the source of truth for what was captured.
 - **Sources** (outbound): webhookie POSTs a signed fixture at your app so you can test handlers without Stripe/GitHub/Slack accounts.

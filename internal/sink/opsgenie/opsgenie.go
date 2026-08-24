@@ -10,6 +10,14 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	maxMessage     = 130
+	maxAlias       = 512
+	maxDescription = 15000
+	maxTags        = 20
+	maxTagLen      = 50
+)
+
 type Sink struct{}
 
 func (Sink) Provider() string { return "opsgenie" }
@@ -54,24 +62,69 @@ func (Sink) Validate(r *http.Request, body []byte) sink.Validation {
 	if err != nil {
 		return sink.Validation{Errors: []store.ValidationError{{Path: "/", Message: "invalid json"}}}
 	}
+	var p sink.Problems
 	msg, _ := m["message"].(string)
 	if strings.TrimSpace(msg) == "" {
-		return sink.Validation{Errors: []store.ValidationError{{Path: "/message", Message: "required"}}}
+		p.Add("/message", "required")
+	} else {
+		p.MaxRunes("/message", msg, maxMessage)
+	}
+	if alias, ok := m["alias"].(string); ok {
+		p.MaxRunes("/alias", alias, maxAlias)
+	}
+	if desc, ok := m["description"].(string); ok {
+		p.MaxRunes("/description", desc, maxDescription)
 	}
 	if pri, ok := m["priority"].(string); ok && pri != "" {
 		switch pri {
 		case "P1", "P2", "P3", "P4", "P5":
 		default:
-			return sink.Validation{Errors: []store.ValidationError{{Path: "/priority", Message: "must be P1|P2|P3|P4|P5"}}}
+			p.Add("/priority", "must be P1|P2|P3|P4|P5")
 		}
 	}
-	return sink.Validation{Valid: true}
+	if raw, ok := m["tags"]; ok && raw != nil {
+		arr, ok := p.RequireArray(raw, "/tags")
+		if ok {
+			_ = p.MaxItems("/tags", len(arr), maxTags)
+			n := len(arr)
+			if n > maxTags {
+				n = maxTags
+			}
+			for i := 0; i < n; i++ {
+				tag, ok := arr[i].(string)
+				if !ok {
+					p.Add(sink.At("/tags", i), "must be a string")
+					continue
+				}
+				p.MaxRunes(sink.At("/tags", i), tag, maxTagLen)
+			}
+		}
+	}
+	return p.Result()
+}
+
+func ogErrorBody(v sink.Validation) string {
+	fields := map[string][]string{}
+	for _, e := range v.Errors {
+		key := strings.TrimPrefix(e.Path, "/")
+		if key == "" {
+			key = "body"
+		}
+		fields[key] = append(fields[key], e.Message)
+	}
+	out, _ := json.Marshal(map[string]any{
+		"message":   "Request body is not processable.",
+		"took":      0.001,
+		"requestId": "invalid",
+		"errors":    fields,
+	})
+	return string(out)
 }
 
 func (s Sink) Respond(w http.ResponseWriter, r *http.Request, body []byte, _ store.Chaos) error {
 	v := s.Validate(r, body)
 	if !v.Valid {
-		sink.WriteJSON(w, http.StatusUnprocessableEntity, `{"message":"Request body is not processable.","took":0.001,"requestId":"invalid"}`)
+		sink.WriteJSON(w, http.StatusUnprocessableEntity, ogErrorBody(v))
 		return nil
 	}
 	id := uuid.NewString()
@@ -98,7 +151,6 @@ func (Sink) Summarize(r *http.Request, body []byte) sink.Summary {
 	key, _ := m["alias"].(string)
 	if key == "" {
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-		// hooks opsgenie v2 alerts {id} acknowledge
 		if len(parts) >= 6 {
 			key = parts[4]
 		}

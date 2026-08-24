@@ -11,6 +11,18 @@ import (
 	"github.com/alphabravo-oss/webhookie/internal/store"
 )
 
+const (
+	maxText         = 4096
+	maxCallbackData = 64
+	maxButtonText   = 64
+)
+
+var parseModes = map[string]bool{
+	"Markdown":   true,
+	"MarkdownV2": true,
+	"HTML":       true,
+}
+
 type Sink struct{}
 
 func (Sink) Provider() string { return "telegram" }
@@ -20,7 +32,6 @@ func (Sink) Match(r *http.Request) bool {
 		return false
 	}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	// hooks / telegram / bot / {token} / sendMessage
 	return len(parts) == 5 && parts[0] == "hooks" && parts[1] == "telegram" && parts[2] == "bot" && parts[4] == "sendMessage"
 }
 
@@ -51,26 +62,122 @@ func (Sink) Validate(_ *http.Request, body []byte) sink.Validation {
 	if err != nil {
 		return sink.Validation{Errors: []store.ValidationError{{Path: "/", Message: "invalid json"}}}
 	}
-	if chatID(m) == "" {
-		return sink.Validation{Errors: []store.ValidationError{{Path: "/chat_id", Message: "chat_id is required"}}}
+	var p sink.Problems
+	if _, exists := m["chat_id"]; exists && m["chat_id"] != nil && chatID(m) == "" {
+		p.Add("/chat_id", "must be a string or number")
+	} else if chatID(m) == "" {
+		p.Add("/chat_id", "chat_id is required")
 	}
 	text, _ := m["text"].(string)
-	if strings.TrimSpace(text) == "" {
-		return sink.Validation{Errors: []store.ValidationError{{Path: "/text", Message: "text is required"}}}
+	if _, exists := m["text"]; exists && m["text"] != nil {
+		if _, ok := m["text"].(string); !ok {
+			p.Add("/text", "must be a string")
+		}
 	}
-	return sink.Validation{Valid: true}
+	if strings.TrimSpace(text) == "" && (m["text"] == nil || m["text"] == "") {
+		p.Add("/text", "text is required")
+	} else if text != "" {
+		p.MaxRunes("/text", text, maxText)
+	}
+	_, hasEntities := m["entities"]
+	if pm, ok := m["parse_mode"].(string); ok && pm != "" {
+		if !parseModes[pm] {
+			p.Add("/parse_mode", "must be Markdown, MarkdownV2, or HTML")
+		} else if !hasEntities && text != "" {
+			if err := parseEntities(pm, text); err != nil {
+				p.Add("/text", err.Error())
+			}
+		}
+	}
+	if hasEntities {
+		validateMessageEntities(&p, text, m["entities"])
+	}
+	if raw, ok := m["reply_markup"]; ok && raw != nil {
+		rm, ok := p.RequireObject(raw, "/reply_markup")
+		if ok {
+			if kb, ok := rm["inline_keyboard"]; ok {
+				validateInlineKeyboard(&p, kb)
+			}
+		}
+	}
+	return p.Result()
+}
+
+func validateInlineKeyboard(p *sink.Problems, v any) {
+	rows, ok := p.RequireArray(v, "/reply_markup/inline_keyboard")
+	if !ok {
+		return
+	}
+	for i, row := range rows {
+		rp := sink.At("/reply_markup/inline_keyboard", i)
+		buttons, ok := p.RequireArray(row, rp)
+		if !ok {
+			continue
+		}
+		for j, b := range buttons {
+			bp := sink.At(rp, j)
+			btn, ok := p.RequireObject(b, bp)
+			if !ok {
+				continue
+			}
+			text, _ := btn["text"].(string)
+			if strings.TrimSpace(text) == "" {
+				p.Add(sink.Path(bp, "text"), "required")
+			} else {
+				p.MaxRunes(sink.Path(bp, "text"), text, maxButtonText)
+			}
+			hasAction := false
+			if cd, ok := btn["callback_data"].(string); ok {
+				hasAction = true
+				if cd == "" || len(cd) > maxCallbackData {
+					p.Add(sink.Path(bp, "callback_data"), "must be 1-64 bytes")
+				}
+			}
+			if u, ok := btn["url"].(string); ok && strings.TrimSpace(u) != "" {
+				hasAction = true
+			}
+			for _, k := range []string{"switch_inline_query", "switch_inline_query_current_chat", "web_app", "login_url", "callback_game", "copy_text"} {
+				if _, ok := btn[k]; ok {
+					hasAction = true
+				}
+			}
+			if pay, ok := btn["pay"].(bool); ok && pay {
+				hasAction = true
+			}
+			if !hasAction {
+				p.Add(bp, "inline button needs callback_data, url, or another action field")
+			}
+		}
+	}
+}
+
+func telegramDescription(v sink.Validation) string {
+	if len(v.Errors) == 0 {
+		return "Bad Request"
+	}
+	e := v.Errors[0]
+	switch {
+	case e.Path == "/chat_id" && strings.Contains(e.Message, "required"):
+		return "Bad Request: chat_id is empty"
+	case e.Path == "/text" && strings.Contains(e.Message, "4096"):
+		return "Bad Request: message is too long"
+	case strings.Contains(e.Message, "can't parse entities"):
+		return "Bad Request: " + e.Message
+	case e.Path == "/text":
+		return "Bad Request: message text is empty"
+	case strings.Contains(e.Path, "callback_data"):
+		return "Bad Request: BUTTON_DATA_INVALID"
+	case e.Path == "/parse_mode":
+		return "Bad Request: can't parse entities: unsupported start tag"
+	default:
+		return "Bad Request: " + e.Message
+	}
 }
 
 func (s Sink) Respond(w http.ResponseWriter, r *http.Request, body []byte, _ store.Chaos) error {
 	v := s.Validate(r, body)
 	if !v.Valid {
-		msg := "Bad Request: chat_id is empty"
-		for _, e := range v.Errors {
-			if e.Path == "/text" {
-				msg = "Bad Request: message text is empty"
-			}
-		}
-		sink.WriteJSON(w, http.StatusBadRequest, fmt.Sprintf(`{"ok":false,"error_code":400,"description":%q}`, msg))
+		sink.WriteJSON(w, http.StatusBadRequest, fmt.Sprintf(`{"ok":false,"error_code":400,"description":%q}`, telegramDescription(v)))
 		return nil
 	}
 	m, _ := parse(body)

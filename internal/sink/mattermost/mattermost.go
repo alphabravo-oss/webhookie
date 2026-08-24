@@ -11,6 +11,8 @@ import (
 	"github.com/alphabravo-oss/webhookie/internal/store"
 )
 
+const maxText = 16383
+
 type Sink struct{}
 
 func (Sink) Provider() string { return "mattermost" }
@@ -20,7 +22,6 @@ func (Sink) Match(r *http.Request) bool {
 		return false
 	}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	// hooks / mattermost / hooks / {token}
 	return len(parts) == 4 && parts[0] == "hooks" && parts[1] == "mattermost" && parts[2] == "hooks"
 }
 
@@ -57,12 +58,50 @@ func (Sink) Validate(r *http.Request, body []byte) sink.Validation {
 	if err != nil {
 		return sink.Validation{Errors: []store.ValidationError{{Path: "/", Message: "invalid json"}}}
 	}
-	text, _ := m["text"].(string)
-	_, att := m["attachments"]
-	if strings.TrimSpace(text) == "" && !att {
-		return sink.Validation{Errors: []store.ValidationError{{Path: "/", Message: "text or attachments is required"}}}
+	var p sink.Problems
+	hasText := false
+	if raw, ok := m["text"]; ok && raw != nil {
+		s, ok := raw.(string)
+		if !ok {
+			p.Add("/text", "must be a string")
+		} else if strings.TrimSpace(s) != "" {
+			hasText = true
+			p.MaxRunes("/text", s, maxText)
+		}
 	}
-	return sink.Validation{Valid: true}
+	hasAtt := false
+	if raw, ok := m["attachments"]; ok && raw != nil {
+		arr, ok := p.RequireArray(raw, "/attachments")
+		if ok && len(arr) > 0 {
+			hasAtt = true
+			for i, a := range arr {
+				am, ok := p.RequireObject(a, sink.At("/attachments", i))
+				if !ok {
+					continue
+				}
+				if actions, ok := am["actions"]; ok && actions != nil {
+					list, ok := p.RequireArray(actions, sink.Path(sink.At("/attachments", i), "actions"))
+					if !ok {
+						continue
+					}
+					for j, act := range list {
+						ap := sink.At(sink.Path(sink.At("/attachments", i), "actions"), j)
+						obj, ok := p.RequireObject(act, ap)
+						if !ok {
+							continue
+						}
+						if name, ok := obj["name"].(string); !ok || strings.TrimSpace(name) == "" {
+							p.Add(sink.Path(ap, "name"), "required")
+						}
+					}
+				}
+			}
+		}
+	}
+	if !hasText && !hasAtt {
+		p.Add("/", "text or attachments is required")
+	}
+	return p.Result()
 }
 
 func (s Sink) Respond(w http.ResponseWriter, r *http.Request, body []byte, _ store.Chaos) error {

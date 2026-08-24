@@ -62,4 +62,4 @@ State is stored as interactions (`GET .../interactions`) and survives refresh.
 - Telegram Bot API besides `sendMessage`
 - A production on-call console
 
-Use Inbox to see the exact bytes. Use destinations to copy URLs and exercise a click.
+Capture validation (Block Kit, Discord files, Telegram markup, Adaptive Card elements) is on the sink, not these pages. See [sinks.md](sinks.md). Use Inbox to see the exact bytes and `validationErrors`. Use destinations to copy URLs and exercise a click.

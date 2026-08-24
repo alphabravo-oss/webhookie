@@ -11,6 +11,8 @@ import (
 	"github.com/alphabravo-oss/webhookie/internal/store"
 )
 
+const maxText = 4096
+
 type Sink struct{}
 
 func (Sink) Provider() string { return "googlechat" }
@@ -20,7 +22,6 @@ func (Sink) Match(r *http.Request) bool {
 		return false
 	}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	// hooks / googlechat / v1 / spaces / {space} / messages
 	return len(parts) == 6 && parts[0] == "hooks" && parts[1] == "googlechat" && parts[2] == "v1" && parts[3] == "spaces" && parts[5] == "messages"
 }
 
@@ -46,19 +47,91 @@ func (Sink) Validate(_ *http.Request, body []byte) sink.Validation {
 	if err != nil {
 		return sink.Validation{Errors: []store.ValidationError{{Path: "/", Message: "invalid json"}}}
 	}
-	text, _ := m["text"].(string)
-	_, cards := m["cards"]
-	_, cardsV2 := m["cardsV2"]
-	if strings.TrimSpace(text) == "" && !cards && !cardsV2 {
-		return sink.Validation{Errors: []store.ValidationError{{Path: "/", Message: "text, cards, or cardsV2 is required"}}}
+	var p sink.Problems
+	hasText := false
+	if raw, ok := m["text"]; ok && raw != nil {
+		s, ok := raw.(string)
+		if !ok {
+			p.Add("/text", "must be a string")
+		} else if strings.TrimSpace(s) != "" {
+			hasText = true
+			p.MaxRunes("/text", s, maxText)
+		}
 	}
-	return sink.Validation{Valid: true}
+	hasCards := false
+	if raw, ok := m["cards"]; ok && raw != nil {
+		arr, ok := p.RequireArray(raw, "/cards")
+		if ok && len(arr) > 0 {
+			hasCards = true
+			for i, c := range arr {
+				p.RequireObject(c, sink.At("/cards", i))
+			}
+		}
+	}
+	hasV2 := false
+	if raw, ok := m["cardsV2"]; ok && raw != nil {
+		arr, ok := p.RequireArray(raw, "/cardsV2")
+		if ok && len(arr) > 0 {
+			hasV2 = true
+			for i, c := range arr {
+				validateCardV2(&p, sink.At("/cardsV2", i), c)
+			}
+		}
+	}
+	if !hasText && !hasCards && !hasV2 {
+		p.Add("/", "text, cards, or cardsV2 is required")
+	}
+	return p.Result()
+}
+
+func validateCardV2(p *sink.Problems, path string, v any) {
+	item, ok := p.RequireObject(v, path)
+	if !ok {
+		return
+	}
+	card, ok := p.RequireObject(item["card"], sink.Path(path, "card"))
+	if !ok {
+		return
+	}
+	if raw, ok := card["sections"]; ok && raw != nil {
+		arr, ok := p.RequireArray(raw, sink.Path(path, "card/sections"))
+		if !ok {
+			return
+		}
+		for i, sec := range arr {
+			sp := sink.At(sink.Path(path, "card/sections"), i)
+			sm, ok := p.RequireObject(sec, sp)
+			if !ok {
+				continue
+			}
+			if wraw, ok := sm["widgets"]; ok && wraw != nil {
+				widgets, ok := p.RequireArray(wraw, sink.Path(sp, "widgets"))
+				if !ok {
+					continue
+				}
+				for j, w := range widgets {
+					p.RequireObject(w, sink.At(sink.Path(sp, "widgets"), j))
+				}
+			}
+		}
+	}
+}
+
+func firstError(v sink.Validation, fallback string) string {
+	if len(v.Errors) == 0 {
+		return fallback
+	}
+	if v.Has("/", "text, cards, or cardsV2") {
+		return "text or cards required"
+	}
+	return v.Errors[0].Message
 }
 
 func (s Sink) Respond(w http.ResponseWriter, r *http.Request, body []byte, _ store.Chaos) error {
 	v := s.Validate(r, body)
 	if !v.Valid {
-		sink.WriteJSON(w, http.StatusBadRequest, `{"error":{"code":400,"message":"text or cards required","status":"INVALID_ARGUMENT"}}`)
+		msg, _ := json.Marshal(firstError(v, "text or cards required"))
+		sink.WriteJSON(w, http.StatusBadRequest, fmt.Sprintf(`{"error":{"code":400,"message":%s,"status":"INVALID_ARGUMENT"}}`, msg))
 		return nil
 	}
 	m, _ := parse(body)

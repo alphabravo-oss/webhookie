@@ -21,7 +21,7 @@ Open http://localhost:8080
 
 | Face | What you use it for |
 |---|---|
-| **Sinks** | Your app POSTs to a provider-shaped URL. Webhookie validates the payload (shallow), returns the real success/error envelope, and stores the packet. |
+| **Sinks** | Your app POSTs to a provider-shaped URL. Webhookie validates documented public-API rules, returns the provider success/error envelope, and stores the packet plus JSON-pointer errors. |
 | **Destinations** | Operator UIs (`/slack`, `/teams`, …) with channels/chats/spaces/services. Copy a URL, see the message, click Approve/Ack. |
 | **Inbox** | Packet log for every capture. Schema errors, headers, body, replay. |
 | **Sources** | Webhookie POSTs a signed fixture at *your* app (`/api/v1/send`). |
@@ -54,7 +54,7 @@ curl -s -X POST http://localhost:8080/hooks/slack/services/T00000000/B00000000/w
   -d '{"text":"deploy failed"}'
 ```
 
-Payload shapes and required fields: [docs/sinks.md](docs/sinks.md).
+Payload shapes, limits, and error envelopes: [docs/sinks.md](docs/sinks.md). Invalid payloads still land in Inbox (`valid: false`, `validationErrors`).
 
 ## Docker
 
@@ -125,9 +125,24 @@ curl -X PATCH http://localhost:8080/api/v1/sinks/sink-slack \
 
 Retention is whichever limit hits first. SQLite file: `$WEBHOOKIE_DATA_DIR/webhookie.db`.
 
-## Limits (accurate)
+## Validation
 
-Webhookie is not Slack/Teams/Telegram. Incoming-webhook happy paths work. It does **not** implement Slack Bolt, Teams Bot Framework, Telegram Bot API beyond `sendMessage`, Discord Interactions follow-ups, or Slack `response_url` handling. Validation is shallow (required fields, not full Block Kit / Adaptive Card schema). See [docs/destinations.md](docs/destinations.md).
+Sinks check **documented public API** rules and reject with the provider envelope. Extra fields are allowed. Pointer errors are on the stored event (`GET /api/v1/events/{id}` → `validationErrors`); Slack’s HTTP body is still only `invalid_payload`.
+
+| Provider | Documented checks |
+|---|---|
+| Slack | `text`/`blocks`/`attachments`, Block Kit types, section/actions/header/image/video/file/rich_text limits |
+| Discord | content/embeds/components/poll, embed limits, `multipart/form-data` `files[n]` + `payload_json`; empty `50006`, fields `50035` |
+| Teams | MessageCard envelope; Adaptive Card element types and version gates (`Table` needs 1.5, …) |
+| Telegram | `chat_id`+`text`; HTML / Markdown / MarkdownV2; `entities[]` UTF-16 offsets |
+| PagerDuty | 32-char `routing_key`, trigger payload, severity enum, summary ≤1024 |
+| Opsgenie | `message` ≤130, `priority` P1–P5, alias/description/tags limits |
+| Google Chat | `text` ≤4096, `cards` / `cardsV2` shape |
+| Mattermost | `text` ≤16383 or `attachments` |
+
+Not claimed: Slack’s private incoming-webhook 400s, Adaptive Card `additionalProperties: false` (that would reject real `msteams` payloads), a byte-clone of Telegram’s C++ parser, Slack Bolt, Teams Bot Framework, Discord Interactions follow-ups, Telegram beyond `sendMessage`, Slack `response_url` handling.
+
+See [docs/sinks.md](docs/sinks.md) and [docs/destinations.md](docs/destinations.md).
 
 ## License
 
