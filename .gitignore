@@ -1,0 +1,11 @@
+bin/
+data/
+*.db
+*.db-wal
+*.db-shm
+.env
+frontend/node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
+.DS_Store
+

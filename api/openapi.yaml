@@ -1,0 +1,221 @@
+openapi: 3.1.0
+info:
+  title: Webhookie
+  version: 0.1.0
+  description: >
+    REST for the UI and CI assertion API. Provider capture is POST /hooks/* and
+    is not modeled here. Envelope: {"data": ...} or {"error": {"code","message"}}.
+    See docs/api.md.
+servers:
+  - url: /
+paths:
+  /api/v1/meta:
+    get:
+      operationId: getMeta
+      responses:
+        "200":
+          description: ok
+  /api/v1/sinks:
+    get:
+      operationId: listSinks
+      responses:
+        "200":
+          description: ok
+    post:
+      operationId: createSink
+      responses:
+        "201":
+          description: created
+  /api/v1/sinks/{id}:
+    get:
+      operationId: getSink
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+    patch:
+      operationId: patchSink
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+  /api/v1/events:
+    get:
+      operationId: listEvents
+      parameters:
+        - in: query
+          name: provider
+          schema: { type: string }
+        - in: query
+          name: sinkId
+          schema: { type: string }
+        - in: query
+          name: since
+          schema: { type: string }
+        - in: query
+          name: groupKey
+          schema: { type: string }
+        - in: query
+          name: contains
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer }
+        - in: query
+          name: offset
+          schema: { type: integer }
+      responses:
+        "200":
+          description: ok
+    delete:
+      operationId: deleteEvents
+      responses:
+        "200":
+          description: ok
+  /api/v1/events/stream:
+    get:
+      operationId: streamEvents
+      responses:
+        "200":
+          description: SSE
+          content:
+            text/event-stream:
+              schema: { type: string }
+  /api/v1/events/{id}:
+    get:
+      operationId: getEvent
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+  /api/v1/events/{id}/replay:
+    post:
+      operationId: replayEvent
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+  /api/v1/send:
+    post:
+      operationId: sendFixture
+      responses:
+        "200":
+          description: ok
+  /api/v1/send/attempts:
+    get:
+      operationId: listAttempts
+      responses:
+        "200":
+          description: ok
+  /api/v1/fixtures:
+    get:
+      operationId: listFixtures
+      responses:
+        "200":
+          description: ok
+  /api/v1/workspaces:
+    get:
+      operationId: listWorkspaces
+      responses:
+        "200":
+          description: ok
+  /api/v1/workspaces/{id}:
+    get:
+      operationId: getWorkspace
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+        "404":
+          description: not found
+    patch:
+      operationId: patchWorkspace
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+  /api/v1/workspaces/{id}/channels:
+    post:
+      operationId: createChannel
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "201":
+          description: created
+  /api/v1/workspaces/{id}/channels/{channelId}/interactions:
+    get:
+      operationId: listInteractions
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: channelId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+  /api/v1/workspaces/{id}/channels/{channelId}/actions:
+    post:
+      operationId: postAction
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: channelId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+  /healthz:
+    get:
+      operationId: healthz
+      responses:
+        "200":
+          description: ok
+  /readyz:
+    get:
+      operationId: readyz
+      responses:
+        "200":
+          description: ok
+        "503":
+          description: not ready
+  /metrics:
+    get:
+      operationId: metrics
+      responses:
+        "200":
+          description: Prometheus text

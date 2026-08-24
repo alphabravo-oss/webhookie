@@ -1,0 +1,12 @@
+# From repo root: docker compose -f deploy/docker-compose.yml up --build
+services:
+  webhookie:
+    build: ..
+    ports:
+      - "8080:8080"
+    volumes:
+      - webhookie-data:/data
+    environment:
+      WEBHOOKIE_PUBLIC_BASE_URL: http://localhost:8080
+volumes:
+  webhookie-data:
