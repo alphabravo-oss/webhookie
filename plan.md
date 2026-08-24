@@ -19,7 +19,7 @@
 - Hook URLs are path-prefix emulation on one port: `http://webhookie:8080/hooks/slack/services/{T}/{B}/{token}`. Do not bind `hooks.slack.com`.
 - Airgap: self-hosted fonts, no Google CDN, no runtime network required.
 - Auth v1: none by default; optional `WEBHOOKIE_PASSWORD` basic auth on UI + `/api/v1/*` only. **Never** require auth on `/hooks/*` (that would break the product).
-- License Apache-2.0. Module path `github.com/alphabravo-oss/webhookie`.
+- License AGPL-3.0. Module path `github.com/alphabravo-oss/webhookie`.
 - Logs: `log/slog` JSON. Probes: `GET /healthz`, `GET /readyz`. Metrics: `GET /metrics` Prometheus text.
 - Max body default 1 MiB (`WEBHOOKIE_MAX_BODY_BYTES`). Retention default 7 days **or** 10_000 events, whichever first (`WEBHOOKIE_RETENTION_DAYS`, `WEBHOOKIE_MAX_EVENTS`).
 - SSE for live inbox. Do not add WebSockets.
@@ -84,7 +84,7 @@ Webhookie is an AlphaBravo product. The UI **is** Astronomer's chrome with webho
 webhookie/
   PRODUCT.md
   README.md
-  LICENSE                    # Apache-2.0
+  LICENSE                    # AGPL-3.0
   Makefile
   Dockerfile
   .gitignore
@@ -187,7 +187,7 @@ webhookie/
 **Files:** Create `PRODUCT.md`, `LICENSE`, `.gitignore`
 
 - [ ] Write `PRODUCT.md` with: one-paragraph promise; sinks vs sources; v1 provider table; explicit non-goals; `docker run` example; assertion API bullet list; health endpoints.
-- [ ] Copy Apache-2.0 text into `LICENSE`.
+- [ ] Copy AGPL-3.0 text into `LICENSE`.
 - [ ] `.gitignore`: `bin/`, `frontend/dist/`, `frontend/node_modules/`, `frontend/src/routeTree.gen.ts` (if generated at build — actually **commit** generated route tree if the router plugin can be run in CI; prefer committing `routeTree.gen.ts` once the plugin exists), `*.db`, `*.db-wal`, `*.db-shm`, `.env`, `data/`.
 - [ ] Commit: `chore: add product contract and license`
 

@@ -6,6 +6,9 @@ info:
     REST for the UI and CI assertion API. Provider capture is POST /hooks/* and
     is not modeled here. Envelope: {"data": ...} or {"error": {"code","message"}}.
     See docs/api.md.
+  license:
+    name: AGPL-3.0
+    url: https://www.gnu.org/licenses/agpl-3.0.html
 servers:
   - url: /
 paths:

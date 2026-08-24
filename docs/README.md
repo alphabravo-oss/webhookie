@@ -13,4 +13,4 @@ User-facing documentation. The implementation plan lives in repo-root `plan.md` 
 | [HTTP API](api.md) | REST, SSE, chaos, assertion helpers |
 | [Configuration](configuration.md) | Environment variables, auth, retention |
 
-Product contract: [`PRODUCT.md`](../PRODUCT.md). Operator summary: [`README.md`](../README.md). OpenAPI skeleton: [`../api/openapi.yaml`](../api/openapi.yaml).
+Product contract: [`PRODUCT.md`](../PRODUCT.md). Operator summary: [`README.md`](../README.md). OpenAPI skeleton: [`../api/openapi.yaml`](../api/openapi.yaml). License: [AGPL-3.0](../LICENSE).

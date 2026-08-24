@@ -67,4 +67,4 @@ docker run --rm -p 8080:8080 -e WEBHOOKIE_PUBLIC_BASE_URL=http://localhost:8080 
 
 Image: `ghcr.io/alphabravo-oss/webhookie` (`0.1.0`, `latest`). Build locally with `make docker-build`.
 
-Docs: [docs/README.md](docs/README.md). License: Apache-2.0.
+Docs: [docs/README.md](docs/README.md). License: [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.html).

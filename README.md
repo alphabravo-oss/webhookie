@@ -160,4 +160,4 @@ See [docs/sinks.md](docs/sinks.md) and [docs/destinations.md](docs/destinations.
 
 ## License
 
-Apache-2.0. See `LICENSE`.
+[AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.html). See `LICENSE`. Network use (including this container) requires offering corresponding source to users who interact with the program.
