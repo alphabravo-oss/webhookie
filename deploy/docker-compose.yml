@@ -1,6 +1,8 @@
-# From repo root: docker compose -f deploy/docker-compose.yml up --build
+# From repo root: docker compose -f deploy/docker-compose.yml up
+# Local build instead of GHCR: docker compose -f deploy/docker-compose.yml up --build
 services:
   webhookie:
+    image: ghcr.io/alphabravo-oss/webhookie:0.1.0
     build: ..
     ports:
       - "8080:8080"

@@ -13,7 +13,11 @@ func TestFromEnvDefaults(t *testing.T) {
 	t.Setenv("WEBHOOKIE_MAX_EVENTS", "")
 	t.Setenv("WEBHOOKIE_PASSWORD", "")
 	t.Setenv("WEBHOOKIE_PUBLIC_BASE_URL", "")
+	t.Setenv("WEBHOOKIE_VERSION", "")
 	c := FromEnv()
+	if c.Version != "0.1.0" {
+		t.Fatalf("version %q", c.Version)
+	}
 	if c.Addr != ":8080" {
 		t.Fatalf("addr %q", c.Addr)
 	}

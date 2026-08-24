@@ -6,38 +6,41 @@ Webhookie is a single Go process. In Docker the UI is embedded. In local UI deve
 
 ## Docker (recommended)
 
+Public image on GHCR (linux/amd64, linux/arm64):
+
+```bash
+docker pull ghcr.io/alphabravo-oss/webhookie:0.1.0
+docker run --rm -p 8080:8080 \
+  -e WEBHOOKIE_PUBLIC_BASE_URL=http://localhost:8080 \
+  -v webhookie-data:/data \
+  ghcr.io/alphabravo-oss/webhookie:0.1.0
+```
+
+Tags: `0.1.0` (this release), `0.1`, `latest`. Pulls are anonymous once the package is public. If `docker pull` returns `denied`, an org owner must set the GHCR package visibility to public (Package settings on `ghcr.io/alphabravo-oss/webhookie`).
+
+Compose (from repo root; uses the GHCR image):
+
+```bash
+docker compose -f deploy/docker-compose.yml up
+```
+
+`deploy/docker-compose.yml` also has a `build:` context if you pass `--build`. It publishes `8080:8080`, sets `WEBHOOKIE_PUBLIC_BASE_URL=http://localhost:8080`, and mounts volume `webhookie-data` at `/data`.
+
+Open http://localhost:8080. SQLite is `$WEBHOOKIE_DATA_DIR/webhookie.db` (`/data/webhookie.db` in the image).
+
+### Build the image yourself
+
 The `Dockerfile` is multi-stage:
 
 1. `node:22-alpine` — `npm ci` + `npm run build` in `frontend/`
 2. `golang:1.26-alpine` — `CGO_ENABLED=0` build of `./cmd/webhookie`, copies `frontend/dist` into `internal/webui/dist`
-3. `alpine:3.20` — binary as user `nonroot` (uid 65532), `EXPOSE 8080`, `VOLUME /data`
+3. `alpine:3.20` — binary as user `nonroot` (uid 65532), `EXPOSE 8080`, `VOLUME /data`, `WEBHOOKIE_VERSION` from build-arg
 
 ```bash
-docker build -t webhookie:latest .
-docker run --rm -p 8080:8080 \
-  -e WEBHOOKIE_PUBLIC_BASE_URL=http://localhost:8080 \
-  -v webhookie-data:/data \
-  webhookie:latest
+make docker-build       # tags webhookie:0.1.0 and webhookie:latest
+make docker-run-local   # run that local tag
+docker build --build-arg VERSION=0.1.0 -t webhookie:0.1.0 .
 ```
-
-Open http://localhost:8080. SQLite is `$WEBHOOKIE_DATA_DIR/webhookie.db` (`/data/webhookie.db` in the image).
-
-Makefile:
-
-```bash
-make docker-build   # docker build -t webhookie:latest .
-make docker-run     # build + run with the named volume webhookie-data
-```
-
-Compose (from repo root):
-
-```bash
-docker compose -f deploy/docker-compose.yml up --build
-```
-
-`deploy/docker-compose.yml` builds context `..` (repo root), publishes `8080:8080`, sets `WEBHOOKIE_PUBLIC_BASE_URL=http://localhost:8080`, and mounts volume `webhookie-data` at `/data`.
-
-There is no assumed published image. README’s `ghcr.io/...` line was removed; build from this tree.
 
 ## Binary without Docker
 

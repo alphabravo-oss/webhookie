@@ -27,7 +27,7 @@ func FromEnv() Config {
 		MaxEvents:     envInt("WEBHOOKIE_MAX_EVENTS", 10000),
 		Password:      os.Getenv("WEBHOOKIE_PASSWORD"),
 		PublicBaseURL: env("WEBHOOKIE_PUBLIC_BASE_URL", "http://localhost:8080"),
-		Version:       env("WEBHOOKIE_VERSION", "0.1.0-dev"),
+		Version:       env("WEBHOOKIE_VERSION", "0.1.0"),
 	}
 	c.DBPath = filepath.Join(c.DataDir, "webhookie.db")
 	return c

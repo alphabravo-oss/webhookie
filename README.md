@@ -4,15 +4,17 @@
 
 # Webhookie
 
-> **Alpha.** Experimental software. APIs, URLs, and behavior will change. **Use at your own risk.** Not for production delivery.
+> **Alpha 0.1.0.** Experimental software. APIs, URLs, and behavior will change. **Use at your own risk.** Not for production delivery.
 
 The Mailpit of webhooks. One process that **emulates destination APIs** (Slack, Teams, Discord, PagerDuty, Telegram, Google Chat, Mattermost, Opsgenie, generic HTTP) so your app can POST notifications without hitting the real internet — and that can **fire signed fixtures** at your receiver.
 
 It is a local/CI destination emulator, not a production gateway and not a clone of Slack.
 
 ```bash
-make docker-run
-# or: docker compose -f deploy/docker-compose.yml up --build
+docker run --rm -p 8080:8080 \
+  -e WEBHOOKIE_PUBLIC_BASE_URL=http://localhost:8080 \
+  -v webhookie-data:/data \
+  ghcr.io/alphabravo-oss/webhookie:0.1.0
 ```
 
 Open http://localhost:8080
@@ -64,17 +66,23 @@ Payload shapes, limits, and error envelopes: [docs/sinks.md](docs/sinks.md). Inv
 
 ## Docker
 
-There is a multi-stage `Dockerfile` (Node 22 frontend → Go 1.26 binary → Alpine, user `nonroot`, port 8080, volume `/data`). Compose is `deploy/docker-compose.yml`.
+Published image: **`ghcr.io/alphabravo-oss/webhookie`** (public). Tags: `0.1.0`, `0.1`, `latest`. linux/amd64 and linux/arm64.
 
 ```bash
-docker build -t webhookie:latest .
+docker pull ghcr.io/alphabravo-oss/webhookie:0.1.0
 docker run --rm -p 8080:8080 \
   -e WEBHOOKIE_PUBLIC_BASE_URL=http://localhost:8080 \
   -v webhookie-data:/data \
-  webhookie:latest
+  ghcr.io/alphabravo-oss/webhookie:0.1.0
 ```
 
-No published GHCR image is assumed. Build locally. Full notes: [docs/getting-started.md](docs/getting-started.md).
+Compose (pulls the same tag; `--build` builds from this tree):
+
+```bash
+docker compose -f deploy/docker-compose.yml up
+```
+
+Local build: `make docker-build` then `make docker-run-local`. Multi-stage `Dockerfile` (Node 22 → Go 1.26 → Alpine `nonroot`). Full notes: [docs/getting-started.md](docs/getting-started.md).
 
 ## Dev (two processes)
 
@@ -127,7 +135,7 @@ curl -X PATCH http://localhost:8080/api/v1/sinks/sink-slack \
 | `WEBHOOKIE_RETENTION_DAYS` | `7` |
 | `WEBHOOKIE_MAX_EVENTS` | `10000` |
 | `WEBHOOKIE_PASSWORD` | unset (no auth). UI + `/api/v1/*` only; **never** `/hooks/*` |
-| `WEBHOOKIE_VERSION` | `0.1.0-dev` |
+| `WEBHOOKIE_VERSION` | `0.1.0` |
 
 Retention is whichever limit hits first. SQLite file: `$WEBHOOKIE_DATA_DIR/webhookie.db`.
 

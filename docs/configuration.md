@@ -11,7 +11,7 @@ All settings are environment variables. There is no config file.
 | `WEBHOOKIE_RETENTION_DAYS` | `7` | Prune events older than this |
 | `WEBHOOKIE_MAX_EVENTS` | `10000` | Prune oldest when over this count |
 | `WEBHOOKIE_PASSWORD` | empty | If set, UI + `/api/v1/*` require auth. **Never** `/hooks/*` |
-| `WEBHOOKIE_VERSION` | `0.1.0-dev` | Shown in UI footer and `/api/v1/meta` |
+| `WEBHOOKIE_VERSION` | `0.1.0` | Shown in UI footer and `/api/v1/meta`. Image builds set this from the git tag. |
 
 Database path is always `$WEBHOOKIE_DATA_DIR/webhookie.db` (WAL). SQLite `MaxOpenConns=1`.
 

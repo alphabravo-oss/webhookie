@@ -1,4 +1,4 @@
-.PHONY: build test frontend run docker-build docker-run tidy
+.PHONY: build test frontend run docker-build docker-run docker-run-local tidy
 
 frontend:
 	cd frontend && npm ci && npm run build
@@ -18,8 +18,13 @@ test:
 run:
 	go run ./cmd/webhookie
 
-docker-build:
-	docker build -t webhookie:latest .
+IMAGE ?= ghcr.io/alphabravo-oss/webhookie:0.1.0
 
-docker-run: docker-build
-	docker run --rm -p 8080:8080 -e WEBHOOKIE_PUBLIC_BASE_URL=http://localhost:8080 -v webhookie-data:/data webhookie:latest
+docker-build:
+	docker build --build-arg VERSION=0.1.0 -t webhookie:0.1.0 -t webhookie:latest .
+
+docker-run:
+	docker run --rm -p 8080:8080 -e WEBHOOKIE_PUBLIC_BASE_URL=http://localhost:8080 -v webhookie-data:/data $(IMAGE)
+
+docker-run-local: docker-build
+	$(MAKE) docker-run IMAGE=webhookie:0.1.0
