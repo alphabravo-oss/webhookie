@@ -7,7 +7,7 @@ User-facing documentation. The implementation plan lives in repo-root `plan.md` 
 | Doc | Contents |
 |---|---|
 | [Getting started](getting-started.md) | Docker, Compose, local two-process dev, Makefile |
-| [Sinks](sinks.md) | Destination URLs, documented validation, HTTP responses, where errors land |
+| [Sinks](sinks.md) | Destination URLs, documented validation, HTTP responses, `response_url` / Discord PATCH / `answerCallbackQuery` |
 | [Destinations](destinations.md) | Channel UIs, two-way clicks, what is and is not real |
 | [Sources](sources.md) | Signed outbound fixtures (`POST /api/v1/send`) |
 | [HTTP API](api.md) | REST, SSE, chaos, assertion helpers |

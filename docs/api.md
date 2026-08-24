@@ -22,12 +22,12 @@ When `WEBHOOKIE_PASSWORD` is set, `/api/v1/*` except `POST /api/v1/login` requir
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/v1/events` | Query: `provider`, `sinkId`, `since`, `groupKey`, `contains` (body LIKE), `limit`, `offset` |
-| GET | `/api/v1/events/{id}` | `?unredact=1` to skip header redaction. Includes `valid` and `validationErrors` (`[{path, message}]`) |
+| GET | `/api/v1/events/{id}` | `?unredact=1` to skip header redaction. Fields include `valid`, `validationErrors` (`[{path, message}]`), optional `displayBody`, `deleted` |
 | DELETE | `/api/v1/events` | All events |
 | GET | `/api/v1/events/stream` | SSE. Event name `webhook`, data is the event JSON |
 | POST | `/api/v1/events/{id}/replay` | Body `{"target":"https://..."}` |
 
-Each event has `valid` (bool) and `validationErrors` (JSON pointers from the sink). The HTTP status on the original `/hooks/*` POST is `status`. Slack still returns only `invalid_payload` to the sender; the pointers are here and in Inbox.
+Each event has `valid` (bool) and `validationErrors` (JSON pointers from the sink). Optional `displayBody` / `deleted` are destination-view mutations from Slack `response_url` or Discord message PATCH/DELETE; Inbox `body` stays the original packet. The HTTP status on the original `/hooks/*` POST is `status`. Slack still returns only `invalid_payload` to the sender; the pointers are here and in Inbox.
 
 Go test helpers (`examples/go`): `Reset(ctx, base)` → `DELETE /api/v1/events`; `WaitFor(ctx, base, provider, contains)` polls `GET /api/v1/events`.
 
@@ -46,11 +46,11 @@ Chaos: `delayMs` sleeps first; `hang` waits until the client goes away; `status`
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/v1/workspaces` | All four original + Telegram, Google Chat, Mattermost, Opsgenie |
+| GET | `/api/v1/workspaces` | Eight workspaces (Slack, Teams, Discord, PagerDuty, Telegram, Google Chat, Mattermost, Opsgenie) |
 | GET | `/api/v1/workspaces/{id}` | Id (`ws-slack`) or provider (`slack`) |
 | PATCH | `/api/v1/workspaces/{id}` | `{name, interactivityUrl, signingSecret}` |
 | POST | `/api/v1/workspaces/{id}/channels` | `{name}` → new sink + channel |
-| GET | `/api/v1/workspaces/{id}/channels/{channelId}/interactions` | Last 100 |
+| GET | `/api/v1/workspaces/{id}/channels/{channelId}/interactions` | Last 100. Telegram `callback_query.id` is this row’s `id` |
 | POST | `/api/v1/workspaces/{id}/channels/{channelId}/actions` | See [destinations.md](destinations.md) |
 
 ## Sources

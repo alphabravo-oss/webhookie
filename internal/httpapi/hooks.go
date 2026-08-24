@@ -10,34 +10,36 @@ import (
 
 	"github.com/alphabravo-oss/webhookie/internal/chaos"
 	"github.com/alphabravo-oss/webhookie/internal/observe"
+	"github.com/alphabravo-oss/webhookie/internal/sink"
 	"github.com/alphabravo-oss/webhookie/internal/store"
 )
 
 func (s *Server) Capture(w http.ResponseWriter, r *http.Request) {
+	if id := slackResponseEventID(r); id != "" {
+		s.handleSlackResponse(w, r, id)
+		return
+	}
+	if mid, ok := discordMessageID(r); ok {
+		s.handleDiscordMessage(w, r, mid)
+		return
+	}
+	if isTelegramAnswer(r) {
+		s.handleTelegramAnswer(w, r)
+		return
+	}
+
 	start := time.Now()
 	adapter, ok := s.sinks.Match(r)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	limited := http.MaxBytesReader(w, r.Body, s.cfg.MaxBodyBytes+1)
-	body, err := io.ReadAll(limited)
-	if err != nil {
-		var maxErr *http.MaxBytesError
-		if errors.As(err, &maxErr) || int64(len(body)) > s.cfg.MaxBodyBytes {
-			writeError(w, http.StatusRequestEntityTooLarge, "body_too_large", "request body exceeds limit")
-			return
-		}
-		writeError(w, 400, "read_error", err.Error())
+	body, truncated, ok := s.readCaptureBody(w, r)
+	if !ok {
 		return
 	}
-	truncated := false
-	if int64(len(body)) > s.cfg.MaxBodyBytes {
-		body = body[:s.cfg.MaxBodyBytes]
-		truncated = true
-		writeError(w, http.StatusRequestEntityTooLarge, "body_too_large", "request body exceeds limit")
-		return
-	}
+	eventID := newID()
+	r = r.WithContext(sink.WithEventID(r.Context(), eventID))
 
 	sk, err := s.store.GetSinkByPath(r.Context(), r.URL.Path)
 	if adapter.Provider() == "pagerduty" {
@@ -101,7 +103,7 @@ func (s *Server) Capture(w http.ResponseWriter, r *http.Request) {
 		headers[k] = append([]string(nil), vs...)
 	}
 	ev := store.Event{
-		ID:               newID(),
+		ID:               eventID,
 		SinkID:           sk.ID,
 		Provider:         adapter.Provider(),
 		ReceivedAt:       time.Now().UTC(),
@@ -135,6 +137,25 @@ func (s *Server) Capture(w http.ResponseWriter, r *http.Request) {
 		}
 		s.hub.Publish(ev)
 	}
+}
+
+func (s *Server) readCaptureBody(w http.ResponseWriter, r *http.Request) ([]byte, bool, bool) {
+	limited := http.MaxBytesReader(w, r.Body, s.cfg.MaxBodyBytes+1)
+	body, err := io.ReadAll(limited)
+	if err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) || int64(len(body)) > s.cfg.MaxBodyBytes {
+			writeError(w, http.StatusRequestEntityTooLarge, "body_too_large", "request body exceeds limit")
+			return nil, false, false
+		}
+		writeError(w, 400, "read_error", err.Error())
+		return nil, false, false
+	}
+	if int64(len(body)) > s.cfg.MaxBodyBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "body_too_large", "request body exceeds limit")
+		return nil, false, false
+	}
+	return body, false, true
 }
 
 type statusRecorder struct {

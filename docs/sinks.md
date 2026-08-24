@@ -1,6 +1,6 @@
 # Sinks
 
-A sink is an HTTP path that pretends to be a provider. `POST` to it from your app. Capture is `HandleFunc("/hooks/*")` — unknown shapes 404.
+A sink is an HTTP path that pretends to be a provider. Your app sends the provider’s method (`POST`, plus Discord `PATCH`/`DELETE` for webhook messages) to it. Capture is `HandleFunc("/hooks/*")` — unknown shapes 404.
 
 Validation follows each provider's **documented public API**: required fields, known enums, child-object shape, published limits, Discord `multipart/form-data` files, Telegram HTML/Markdown/MarkdownV2, and Adaptive Card element types. Extra fields are allowed. It is not Slack's private validator, Adaptive Card `additionalProperties: false`, or a byte-clone of Telegram's C++ parser.
 
@@ -39,6 +39,20 @@ Also checked (documented Block Kit / incoming-webhook rules):
 Success: `200` `text/plain` body `ok`.  
 Invalid: `400` `{"ok":false,"error":"invalid_payload"}` (details only on the stored event).
 
+### Slack `response_url`
+
+`POST /hooks/slack/response/{eventId}` — this is the `response_url` on a destination click payload.
+
+Same JSON as an incoming webhook, plus:
+
+| Field | Effect |
+|---|---|
+| `replace_original` true / `"true"` | Updates the original event’s `displayBody`. Destination UI shows the new text/blocks. Inbox `body` stays the original packet. |
+| `delete_original` true / `"true"` | Sets `deleted` on the original event. Destination UI shows “This message was deleted.” |
+| neither | Treated as a **new** channel message (stored on the original sink path so it appears in the transcript). |
+
+Max **5** calls, **30 minutes** from the original capture. Unknown `eventId` → `404`. Expired / over-limit → `400` `{"ok":false,"error":"invalid_payload"}` (reason on the stored follow-up event). Extra fields (`response_type`, …) allowed.
+
 ## Microsoft Teams
 
 `POST /hooks/teams/workflow/{token}` or `/hooks/teams/incoming/{token}`
@@ -64,7 +78,7 @@ Invalid: `400` `{"error":"invalid card"}` (details on the stored event).
 
 Default: `/hooks/discord/api/webhooks/0/webhookie`
 
-Needs one of `content`, `embeds`, `components`, `files[n]`, or `poll`. Query `wait=true` returns `200` `{"id":"0","content":"ok"}`; otherwise `204` empty.
+Needs one of `content`, `embeds`, `components`, `files[n]`, or `poll`. Default success is `204` empty. Query `wait=true` returns `200` `{"id":"<eventId>","content":"<text>"}` (`id` is the stored event id, used for later PATCH/DELETE).
 
 Also checked:
 
@@ -76,6 +90,8 @@ Also checked:
 
 Empty payload: `400` `{"message":"Cannot send an empty message","code":50006}`.  
 Field errors: `400` `{"message":"Invalid Form Body","code":50035,"errors":{...}}`.
+
+`PATCH` / `DELETE /hooks/discord/api/webhooks/{id}/{token}/messages/{eventId}` edits or deletes that message (`displayBody` / `deleted` on the original event). Unknown id → `404` `{"message":"Unknown Message","code":10008}`. Inbox `body` stays the original execute payload. Not the Interactions follow-up API.
 
 ## PagerDuty Events API v2
 
@@ -102,7 +118,7 @@ Invalid: `400` `{"status":"invalid event","message":"Event object is invalid","e
 
 Lookup: body `routing_key` maps to a sink token when present.
 
-## Telegram Bot API (`sendMessage` only)
+## Telegram Bot API (`sendMessage` + `answerCallbackQuery`)
 
 `POST /hooks/telegram/bot/{token}/sendMessage`
 
@@ -113,7 +129,9 @@ Required JSON: `chat_id` (number or string) and `text` (1–4,096 characters). `
 Success: `200` `{"ok":true,"result":{message_id,from,chat,date,text,...}}`.  
 Invalid: `400` `{"ok":false,"error_code":400,"description":"Bad Request: ..."}`.
 
-No other Bot API methods (`getUpdates`, `sendPhoto`, `answerCallbackQuery`, …).
+Also `POST /hooks/telegram/bot/{token}/answerCallbackQuery` with `callback_query_id` (the interaction id from a destination click) and optional `text` (max 200). Success `{"ok":true,"result":true}`. Unknown id → `400` `query is too old…`.
+
+No other Bot API methods (`getUpdates`, `sendPhoto`, …).
 
 ## Google Chat incoming webhooks
 

@@ -26,7 +26,7 @@ func TestOpenAppliesMigrationOnce(t *testing.T) {
 	if err := db2.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
-	if n != 2 {
+	if n != 3 {
 		t.Fatalf("migrations applied %d times", n)
 	}
 	var sinks int

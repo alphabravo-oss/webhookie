@@ -42,14 +42,14 @@ import (
 )
 
 type Server struct {
-	cfg    config.Config
-	store  *store.Store
-	hub    *Hub
-	sinks  *sink.Registry
-	srcs   *source.Registry
-	ready  func(context.Context) error
-	web    fs.FS
-	log    *slog.Logger
+	cfg   config.Config
+	store *store.Store
+	hub   *Hub
+	sinks *sink.Registry
+	srcs  *source.Registry
+	ready func(context.Context) error
+	web   fs.FS
+	log   *slog.Logger
 }
 
 func New(cfg config.Config, st *store.Store, ready func(context.Context) error) *Server {

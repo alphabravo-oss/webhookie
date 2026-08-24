@@ -26,6 +26,8 @@ export type Event = {
   validationErrors: ValidationError[];
   summary: string;
   groupKey: string;
+  displayBody?: string;
+  deleted?: boolean;
 };
 
 export type Sink = {

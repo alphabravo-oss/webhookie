@@ -23,12 +23,18 @@ Open http://localhost:8080
 |---|---|
 | **Sinks** | Your app POSTs to a provider-shaped URL. Webhookie validates documented public-API rules, returns the provider success/error envelope, and stores the packet plus JSON-pointer errors. |
 | **Destinations** | Operator UIs (`/slack`, `/teams`, …) with channels/chats/spaces/services. Copy a URL, see the message, click Approve/Ack. |
-| **Inbox** | Packet log for every capture. Schema errors, headers, body, replay. |
+| **Inbox** | Packet log for every capture. Schema errors, headers, original `body`, replay. Destination edits (`displayBody` / `deleted`) do not rewrite Inbox. |
 | **Sources** | Webhookie POSTs a signed fixture at *your* app (`/api/v1/send`). |
 
-Two-way clicks record an interaction and, if you set an Interactivity URL, POST a provider-shaped payload to your app. The destination UI then updates **locally**. Slack `response_url` is advertised in the payload but **not implemented** — a handler that tries to replace the original message will get 404.
+Two-way: a destination click records an interaction and, if you set an Interactivity URL, POSTs a provider-shaped payload to your app. Click chrome (✓, hidden buttons) is local and does **not** apply your handler’s HTTP body. If the handler then calls the documented follow-up URL, webhookie **does** apply that to the original message (`displayBody` / `deleted`):
 
-Details: [docs/](docs/README.md).
+| Follow-up | Path |
+|---|---|
+| Slack `response_url` | `POST /hooks/slack/response/{eventId}` (`replace_original`, `delete_original`, or a new message) |
+| Discord webhook message | `PATCH`/`DELETE /hooks/discord/api/webhooks/{id}/{token}/messages/{eventId}` — use `?wait=true` on execute so the id is returned |
+| Telegram | `POST /hooks/telegram/bot/{token}/answerCallbackQuery` with `callback_query_id` = interaction id |
+
+Details: [docs/](docs/README.md), [docs/sinks.md](docs/sinks.md), [docs/destinations.md](docs/destinations.md).
 
 ## Sink URLs (defaults)
 
@@ -39,9 +45,9 @@ Replace `http://localhost:8080` with `WEBHOOKIE_PUBLIC_BASE_URL` in Docker/CI.
 | Generic | `/hooks/generic/default` | `{"ok":true}` `200` |
 | Slack incoming | `/hooks/slack/services/T00000000/B00000000/webhookie` | `ok` `200` text/plain |
 | Teams workflow | `/hooks/teams/workflow/webhookie` | MessageCard `1` or Adaptive `{statusCode:200}` |
-| Discord incoming | `/hooks/discord/api/webhooks/0/webhookie` | `204` (`200` if `?wait=true`) |
+| Discord incoming | `/hooks/discord/api/webhooks/0/webhookie` | `204`; `?wait=true` → `200` `{"id":"<eventId>","content":"..."}` |
 | PagerDuty Events API v2 | `/hooks/pagerduty/v2/enqueue` | `202` + `dedup_key`. Routing key `0123456789abcdef0123456789abcdef` |
-| Telegram `sendMessage` | `/hooks/telegram/bot/123456:AAWebhookie/sendMessage` | `{ok:true,result:{...}}` `200` |
+| Telegram `sendMessage` | `/hooks/telegram/bot/123456:AAWebhookie/sendMessage` | `{ok:true,result:{...}}` `200`. Also `…/answerCallbackQuery` |
 | Google Chat incoming | `/hooks/googlechat/v1/spaces/AAAAwebhookie/messages` | Message resource `200` |
 | Mattermost incoming | `/hooks/mattermost/hooks/mattermost-webhookie` | `ok` `200` text/plain |
 | Opsgenie Alert API v2 | `/hooks/opsgenie/v2/alerts` | `202`. Optional `Authorization: GenieKey eb243592-faa2-4ba2-a551-webhookie01` |
@@ -131,16 +137,16 @@ Sinks check **documented public API** rules and reject with the provider envelop
 
 | Provider | Documented checks |
 |---|---|
-| Slack | `text`/`blocks`/`attachments`, Block Kit types, section/actions/header/image/video/file/rich_text limits |
-| Discord | content/embeds/components/poll, embed limits, `multipart/form-data` `files[n]` + `payload_json`; empty `50006`, fields `50035` |
+| Slack | `text`/`blocks`/`attachments`, Block Kit types, section/actions/header/image/video/file/rich_text limits; `response_url` 5× / 30 min |
+| Discord | content/embeds/components/poll, embed limits, `multipart/form-data` `files[n]` + `payload_json`; empty `50006`, fields `50035`; webhook message PATCH/DELETE |
 | Teams | MessageCard envelope; Adaptive Card element types and version gates (`Table` needs 1.5, …) |
-| Telegram | `chat_id`+`text`; HTML / Markdown / MarkdownV2; `entities[]` UTF-16 offsets |
+| Telegram | `chat_id`+`text`; HTML / Markdown / MarkdownV2; `entities[]` UTF-16 offsets; `answerCallbackQuery` |
 | PagerDuty | 32-char `routing_key`, trigger payload, severity enum, summary ≤1024 |
 | Opsgenie | `message` ≤130, `priority` P1–P5, alias/description/tags limits |
 | Google Chat | `text` ≤4096, `cards` / `cardsV2` shape |
 | Mattermost | `text` ≤16383 or `attachments` |
 
-Not claimed: Slack’s private incoming-webhook 400s, Adaptive Card `additionalProperties: false` (that would reject real `msteams` payloads), a byte-clone of Telegram’s C++ parser, Slack Bolt, Teams Bot Framework, Discord Interactions follow-ups, Telegram beyond `sendMessage`, Slack `response_url` handling.
+Not claimed: Slack’s private incoming-webhook 400s, Adaptive Card `additionalProperties: false` (that would reject real `msteams` payloads), a byte-clone of Telegram’s C++ parser, Slack Bolt, Teams Bot Framework, Discord Interactions follow-ups, Telegram Bot API beyond `sendMessage` and `answerCallbackQuery`.
 
 See [docs/sinks.md](docs/sinks.md) and [docs/destinations.md](docs/destinations.md).
 

@@ -79,6 +79,8 @@ make test
 
 `e2e/` is empty. There is no Playwright suite yet.
 
+Provider URLs, validation, and follow-ups (`response_url`, Discord message PATCH, `answerCallbackQuery`): [sinks.md](sinks.md). Destination click theater: [destinations.md](destinations.md).
+
 ## Health
 
 ```bash

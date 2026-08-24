@@ -170,6 +170,30 @@ func (s *Store) InsertInteraction(ctx context.Context, in Interaction) error {
 	return err
 }
 
+func (s *Store) GetInteraction(ctx context.Context, id string) (Interaction, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, created_at, workspace_id, channel_id, event_id, kind, action_id, payload, target, status, error, latency_ms FROM interactions WHERE id=?`, id)
+	return scanInteraction(row)
+}
+
+func scanInteraction(row rowScanner) (Interaction, error) {
+	var in Interaction
+	var created string
+	var status sql.NullInt64
+	var errText sql.NullString
+	var payload []byte
+	if err := row.Scan(&in.ID, &created, &in.WorkspaceID, &in.ChannelID, &in.EventID, &in.Kind, &in.ActionID, &payload, &in.Target, &status, &errText, &in.LatencyMS); err != nil {
+		return Interaction{}, err
+	}
+	in.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
+	in.Payload = string(payload)
+	if status.Valid {
+		v := int(status.Int64)
+		in.Status = &v
+	}
+	in.Error = errText.String
+	return in, nil
+}
+
 func (s *Store) ListInteractions(ctx context.Context, channelID string) ([]Interaction, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, created_at, workspace_id, channel_id, event_id, kind, action_id, payload, target, status, error, latency_ms FROM interactions WHERE channel_id=? ORDER BY created_at DESC LIMIT 100`, channelID)
 	if err != nil {
@@ -178,21 +202,10 @@ func (s *Store) ListInteractions(ctx context.Context, channelID string) ([]Inter
 	defer rows.Close()
 	var out []Interaction
 	for rows.Next() {
-		var in Interaction
-		var created string
-		var status sql.NullInt64
-		var errText sql.NullString
-		var payload []byte
-		if err := rows.Scan(&in.ID, &created, &in.WorkspaceID, &in.ChannelID, &in.EventID, &in.Kind, &in.ActionID, &payload, &in.Target, &status, &errText, &in.LatencyMS); err != nil {
+		in, err := scanInteraction(rows)
+		if err != nil {
 			return nil, err
 		}
-		in.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
-		in.Payload = string(payload)
-		if status.Valid {
-			v := int(status.Int64)
-			in.Status = &v
-		}
-		in.Error = errText.String
 		out = append(out, in)
 	}
 	return out, rows.Err()

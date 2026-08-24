@@ -34,11 +34,17 @@ type Sink struct{}
 func (Sink) Provider() string { return "discord" }
 
 func (Sink) Match(r *http.Request) bool {
-	if r.Method != http.MethodPost {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) != 6 && len(parts) != 8 {
 		return false
 	}
-	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	return len(parts) == 6 && parts[0] == "hooks" && parts[1] == "discord" && parts[2] == "api" && parts[3] == "webhooks"
+	if parts[0] != "hooks" || parts[1] != "discord" || parts[2] != "api" || parts[3] != "webhooks" {
+		return false
+	}
+	if len(parts) == 6 {
+		return r.Method == http.MethodPost
+	}
+	return parts[6] == "messages" && (r.Method == http.MethodPatch || r.Method == http.MethodDelete)
 }
 
 func parse(body []byte) (map[string]any, error) {
@@ -139,6 +145,12 @@ func (Sink) Validate(r *http.Request, body []byte) sink.Validation {
 		}
 	}
 
+	if r != nil && r.Method == http.MethodDelete {
+		return sink.Validation{Valid: true}
+	}
+	if r != nil && r.Method == http.MethodPatch {
+		return p.Result()
+	}
 	if !hasContent && !hasEmbeds && !hasComponents && !hasAttachments && !hasFiles && !hasPoll {
 		p.Add("/", "content, embeds, components, files, or poll is required")
 	}
@@ -342,13 +354,32 @@ func discordErrorTree(errs []store.ValidationError) map[string]any {
 }
 
 func (s Sink) Respond(w http.ResponseWriter, r *http.Request, body []byte, _ store.Chaos) error {
-	v := s.Validate(r, body)
+	v, ok := sink.ForcedValidation(r.Context())
+	if !ok {
+		v = s.Validate(r, body)
+	}
 	if !v.Valid {
 		writeInvalid(w, v)
 		return nil
 	}
-	if r.URL.Query().Get("wait") == "true" {
-		sink.WriteJSON(w, http.StatusOK, `{"id":"0","content":"ok"}`)
+	if r.Method == http.MethodDelete {
+		w.WriteHeader(http.StatusNoContent)
+		return nil
+	}
+	id := sink.EventID(r.Context())
+	if id == "" {
+		id = "0"
+	}
+	if r.Method == http.MethodPatch || r.URL.Query().Get("wait") == "true" {
+		dec, _ := decode(r, body)
+		content, _ := dec.m["content"].(string)
+		if content == "" {
+			content = "ok"
+		}
+		out, _ := json.Marshal(map[string]any{"id": id, "content": content})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(out)
 		return nil
 	}
 	w.WriteHeader(http.StatusNoContent)

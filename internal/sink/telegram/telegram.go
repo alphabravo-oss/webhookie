@@ -32,7 +32,10 @@ func (Sink) Match(r *http.Request) bool {
 		return false
 	}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	return len(parts) == 5 && parts[0] == "hooks" && parts[1] == "telegram" && parts[2] == "bot" && parts[4] == "sendMessage"
+	if len(parts) != 5 || parts[0] != "hooks" || parts[1] != "telegram" || parts[2] != "bot" {
+		return false
+	}
+	return parts[4] == "sendMessage" || parts[4] == "answerCallbackQuery"
 }
 
 func parse(body []byte) (map[string]any, error) {
@@ -57,10 +60,21 @@ func chatID(m map[string]any) string {
 	}
 }
 
-func (Sink) Validate(_ *http.Request, body []byte) sink.Validation {
+func (Sink) Validate(r *http.Request, body []byte) sink.Validation {
 	m, err := parse(body)
 	if err != nil {
 		return sink.Validation{Errors: []store.ValidationError{{Path: "/", Message: "invalid json"}}}
+	}
+	if r != nil && strings.HasSuffix(strings.Trim(r.URL.Path, "/"), "/answerCallbackQuery") {
+		var p sink.Problems
+		id, _ := m["callback_query_id"].(string)
+		if strings.TrimSpace(id) == "" {
+			p.Add("/callback_query_id", "required")
+		}
+		if text, ok := m["text"].(string); ok {
+			p.MaxRunes("/text", text, 200)
+		}
+		return p.Result()
 	}
 	var p sink.Problems
 	if _, exists := m["chat_id"]; exists && m["chat_id"] != nil && chatID(m) == "" {
@@ -163,6 +177,10 @@ func telegramDescription(v sink.Validation) string {
 		return "Bad Request: message is too long"
 	case strings.Contains(e.Message, "can't parse entities"):
 		return "Bad Request: " + e.Message
+	case e.Path == "/callback_query_id":
+		return "Bad Request: query is too old and response timeout expired or query ID is invalid"
+	case e.Path == "/text" && strings.Contains(e.Message, "200"):
+		return "Bad Request: TEXT_TOO_LONG"
 	case e.Path == "/text":
 		return "Bad Request: message text is empty"
 	case strings.Contains(e.Path, "callback_data"):
@@ -175,9 +193,16 @@ func telegramDescription(v sink.Validation) string {
 }
 
 func (s Sink) Respond(w http.ResponseWriter, r *http.Request, body []byte, _ store.Chaos) error {
-	v := s.Validate(r, body)
+	v, ok := sink.ForcedValidation(r.Context())
+	if !ok {
+		v = s.Validate(r, body)
+	}
 	if !v.Valid {
 		sink.WriteJSON(w, http.StatusBadRequest, fmt.Sprintf(`{"ok":false,"error_code":400,"description":%q}`, telegramDescription(v)))
+		return nil
+	}
+	if r != nil && strings.HasSuffix(strings.Trim(r.URL.Path, "/"), "/answerCallbackQuery") {
+		sink.WriteJSON(w, http.StatusOK, `{"ok":true,"result":true}`)
 		return nil
 	}
 	m, _ := parse(body)

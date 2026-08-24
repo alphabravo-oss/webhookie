@@ -1,12 +1,52 @@
 package sink
 
 import (
+	"context"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/alphabravo-oss/webhookie/internal/store"
 )
+
+type ctxKey int
+
+const (
+	eventIDKey   ctxKey = 1
+	forcedValKey ctxKey = 2
+)
+
+func WithEventID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, eventIDKey, id)
+}
+
+func EventID(ctx context.Context) string {
+	id, _ := ctx.Value(eventIDKey).(string)
+	return id
+}
+
+func WithValidation(ctx context.Context, v Validation) context.Context {
+	return context.WithValue(ctx, forcedValKey, v)
+}
+
+func ForcedValidation(ctx context.Context) (Validation, bool) {
+	v, ok := ctx.Value(forcedValKey).(Validation)
+	return v, ok
+}
+
+func Truthy(v any) bool {
+	switch t := v.(type) {
+	case bool:
+		return t
+	case string:
+		s := strings.ToLower(strings.TrimSpace(t))
+		return s == "true" || s == "1" || s == "yes"
+	case float64:
+		return t != 0
+	default:
+		return false
+	}
+}
 
 // Problems collects JSON-pointer validation errors for a sink payload.
 type Problems []store.ValidationError

@@ -263,10 +263,11 @@ func (s *Server) postAction(w http.ResponseWriter, r *http.Request) {
 		s.Capture(rec, req)
 	}
 
-	payload, contentType := buildInteraction(ws, ch, ev, in, s.cfg.PublicBaseURL)
+	interID := newID()
+	payload, contentType := buildInteraction(ws, ch, ev, in, s.cfg.PublicBaseURL, interID)
 	target := ws.InteractivityURL
 	inter := store.Interaction{
-		ID:          newID(),
+		ID:          interID,
 		CreatedAt:   time.Now().UTC(),
 		WorkspaceID: ws.ID,
 		ChannelID:   ch.ID,
@@ -315,7 +316,7 @@ func srcslackSign(h http.Header, body []byte, secret string) {
 	h.Set("X-Slack-Signature", "v0="+source.HMACSHA256Hex(secret, base))
 }
 
-func buildInteraction(ws store.Workspace, ch store.Channel, ev store.Event, in actionIn, publicBase string) ([]byte, string) {
+func buildInteraction(ws store.Workspace, ch store.Channel, ev store.Event, in actionIn, publicBase, callbackID string) ([]byte, string) {
 	switch ws.Provider {
 	case "slack":
 		msg := json.RawMessage("{}")
@@ -357,11 +358,11 @@ func buildInteraction(ws store.Workspace, ch store.Channel, ev store.Event, in a
 		return b, "application/json"
 	case "discord":
 		b, _ := json.Marshal(map[string]any{
-			"type": 3,
-			"custom_id": in.ActionID,
+			"type":       3,
+			"custom_id":  in.ActionID,
 			"channel_id": ch.ID,
-			"data": map[string]any{"custom_id": in.ActionID, "component_type": 2, "values": []string{in.Value}},
-			"message": json.RawMessage(ev.BodyText),
+			"data":       map[string]any{"custom_id": in.ActionID, "component_type": 2, "values": []string{in.Value}},
+			"message":    json.RawMessage(ev.BodyText),
 		})
 		return b, "application/json"
 	case "pagerduty":
@@ -381,7 +382,7 @@ func buildInteraction(ws store.Workspace, ch store.Channel, ev store.Event, in a
 		b, _ := json.Marshal(map[string]any{
 			"update_id": 1,
 			"callback_query": map[string]any{
-				"id":            newID(),
+				"id":            callbackID,
 				"from":          map[string]any{"id": 1, "is_bot": false, "first_name": "Webhookie"},
 				"chat_instance": ch.ID,
 				"data":          firstNonEmpty(in.Value, in.ActionID),
@@ -413,14 +414,14 @@ func buildInteraction(ws store.Workspace, ch store.Channel, ev store.Event, in a
 		return b, "application/json"
 	case "mattermost":
 		b, _ := json.Marshal(map[string]any{
-			"user_id":    "webhookie",
-			"user_name":  "webhookie",
-			"channel_id": ch.ID,
+			"user_id":      "webhookie",
+			"user_name":    "webhookie",
+			"channel_id":   ch.ID,
 			"channel_name": ch.Name,
-			"team_id":    ws.ID,
-			"post_id":    ev.ID,
-			"trigger_id": newID(),
-			"context":    map[string]any{"action": firstNonEmpty(in.ActionID, in.Text), "value": in.Value},
+			"team_id":      ws.ID,
+			"post_id":      ev.ID,
+			"trigger_id":   newID(),
+			"context":      map[string]any{"action": firstNonEmpty(in.ActionID, in.Text), "value": in.Value},
 		})
 		return b, "application/json"
 	case "opsgenie":

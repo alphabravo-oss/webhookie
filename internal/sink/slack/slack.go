@@ -84,7 +84,15 @@ func (Sink) Match(r *http.Request) bool {
 		return false
 	}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) == 4 && parts[0] == "hooks" && parts[1] == "slack" && parts[2] == "response" && parts[3] != "" {
+		return true
+	}
 	return len(parts) == 6 && parts[0] == "hooks" && parts[1] == "slack" && parts[2] == "services"
+}
+
+func isResponseURL(r *http.Request) bool {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	return len(parts) == 4 && parts[0] == "hooks" && parts[1] == "slack" && parts[2] == "response"
 }
 
 func decodeBody(r *http.Request, body []byte) (map[string]any, error) {
@@ -121,6 +129,11 @@ func (Sink) Validate(r *http.Request, body []byte) sink.Validation {
 	}
 	var p sink.Problems
 
+	if isResponseURL(r) {
+		if sink.Truthy(m["delete_original"]) {
+			return sink.Validation{Valid: true}
+		}
+	}
 	hasText, hasBlocks, hasAtt := false, false, false
 	if raw, ok := m["text"]; ok && raw != nil {
 		s, ok := raw.(string)
@@ -537,7 +550,10 @@ func validateAttachment(p *sink.Problems, path string, v any) {
 }
 
 func (s Sink) Respond(w http.ResponseWriter, r *http.Request, body []byte, _ store.Chaos) error {
-	v := s.Validate(r, body)
+	v, ok := sink.ForcedValidation(r.Context())
+	if !ok {
+		v = s.Validate(r, body)
+	}
 	if !v.Valid {
 		sink.WriteJSON(w, http.StatusBadRequest, `{"ok":false,"error":"invalid_payload"}`)
 		return nil

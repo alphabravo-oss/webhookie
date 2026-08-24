@@ -37,24 +37,34 @@ type ValidationError struct {
 }
 
 type Event struct {
-	ID               string            `json:"id"`
-	SinkID           string            `json:"sinkId"`
-	Provider         string            `json:"provider"`
-	ReceivedAt       time.Time         `json:"receivedAt"`
-	Method           string            `json:"method"`
-	Path             string            `json:"path"`
-	Query            map[string]string `json:"query"`
+	ID               string              `json:"id"`
+	SinkID           string              `json:"sinkId"`
+	Provider         string              `json:"provider"`
+	ReceivedAt       time.Time           `json:"receivedAt"`
+	Method           string              `json:"method"`
+	Path             string              `json:"path"`
+	Query            map[string]string   `json:"query"`
 	Headers          map[string][]string `json:"headers"`
-	ContentType      string            `json:"contentType"`
-	Body             []byte            `json:"-"`
-	BodyText         string            `json:"body"`
-	BodyTruncated    bool              `json:"bodyTruncated"`
-	Status           int               `json:"status"`
-	LatencyMS        int               `json:"latencyMs"`
-	Valid            bool              `json:"valid"`
-	ValidationErrors []ValidationError `json:"validationErrors"`
-	Summary          string            `json:"summary"`
-	GroupKey         string            `json:"groupKey"`
+	ContentType      string              `json:"contentType"`
+	Body             []byte              `json:"-"`
+	BodyText         string              `json:"body"`
+	BodyTruncated    bool                `json:"bodyTruncated"`
+	Status           int                 `json:"status"`
+	LatencyMS        int                 `json:"latencyMs"`
+	Valid            bool                `json:"valid"`
+	ValidationErrors []ValidationError   `json:"validationErrors"`
+	Summary          string              `json:"summary"`
+	GroupKey         string              `json:"groupKey"`
+	DisplayBody      string              `json:"displayBody,omitempty"`
+	Deleted          bool                `json:"deleted,omitempty"`
+}
+
+type MessageState struct {
+	EventID       string
+	Deleted       bool
+	DisplayBody   []byte
+	UpdatedAt     time.Time
+	ResponseCount int
 }
 
 type EventFilter struct {
@@ -68,17 +78,17 @@ type EventFilter struct {
 }
 
 type SendAttempt struct {
-	ID              string              `json:"id"`
-	CreatedAt       time.Time           `json:"createdAt"`
-	Provider        string              `json:"provider"`
-	EventName       string              `json:"eventName"`
-	Target          string              `json:"target"`
-	RequestHeaders  map[string][]string `json:"requestHeaders"`
-	Body            []byte              `json:"-"`
-	BodyText        string              `json:"body"`
-	Status          *int                `json:"status"`
-	Error           string              `json:"error,omitempty"`
-	LatencyMS       int                 `json:"latencyMs"`
+	ID             string              `json:"id"`
+	CreatedAt      time.Time           `json:"createdAt"`
+	Provider       string              `json:"provider"`
+	EventName      string              `json:"eventName"`
+	Target         string              `json:"target"`
+	RequestHeaders map[string][]string `json:"requestHeaders"`
+	Body           []byte              `json:"-"`
+	BodyText       string              `json:"body"`
+	Status         *int                `json:"status"`
+	Error          string              `json:"error,omitempty"`
+	LatencyMS      int                 `json:"latencyMs"`
 }
 
 func (s *Store) Ping(ctx context.Context) error {
@@ -166,7 +176,17 @@ func (s *Store) InsertEvent(ctx context.Context, ev Event) error {
 
 func (s *Store) GetEvent(ctx context.Context, id string) (Event, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT id, sink_id, provider, received_at, method, path, query_json, headers_json, content_type, body, body_truncated, status, latency_ms, valid, validation_json, summary, group_key FROM events WHERE id=?`, id)
-	return scanEvent(row)
+	ev, err := scanEvent(row)
+	if err != nil {
+		return Event{}, err
+	}
+	if st, stErr := s.GetMessageState(ctx, ev.ID); stErr == nil {
+		ev.Deleted = st.Deleted
+		if len(st.DisplayBody) > 0 {
+			ev.DisplayBody = string(st.DisplayBody)
+		}
+	}
+	return ev, nil
 }
 
 func (s *Store) ListEvents(ctx context.Context, f EventFilter) ([]Event, int, error) {
@@ -195,7 +215,87 @@ func (s *Store) ListEvents(ctx context.Context, f EventFilter) ([]Event, int, er
 		}
 		out = append(out, ev)
 	}
+	if err := s.decorateEvents(ctx, out); err != nil {
+		return nil, 0, err
+	}
 	return out, total, rows.Err()
+}
+
+func (s *Store) GetMessageState(ctx context.Context, eventID string) (MessageState, error) {
+	var st MessageState
+	var deleted int
+	var updated string
+	var body []byte
+	err := s.db.QueryRowContext(ctx, `SELECT event_id, deleted, display_body, updated_at, response_count FROM message_state WHERE event_id=?`, eventID).Scan(&st.EventID, &deleted, &body, &updated, &st.ResponseCount)
+	if err != nil {
+		return MessageState{}, err
+	}
+	st.Deleted = deleted == 1
+	st.DisplayBody = body
+	st.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
+	return st, nil
+}
+
+func (s *Store) UpsertMessageState(ctx context.Context, st MessageState) error {
+	deleted := 0
+	if st.Deleted {
+		deleted = 1
+	}
+	if st.UpdatedAt.IsZero() {
+		st.UpdatedAt = time.Now().UTC()
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO message_state (event_id, deleted, display_body, updated_at, response_count)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(event_id) DO UPDATE SET
+			deleted=excluded.deleted,
+			display_body=excluded.display_body,
+			updated_at=excluded.updated_at,
+			response_count=excluded.response_count
+	`, st.EventID, deleted, st.DisplayBody, st.UpdatedAt.UTC().Format(time.RFC3339Nano), st.ResponseCount)
+	return err
+}
+
+func (s *Store) decorateEvents(ctx context.Context, evs []Event) error {
+	if len(evs) == 0 {
+		return nil
+	}
+	ids := make([]any, len(evs))
+	ph := make([]string, len(evs))
+	for i, ev := range evs {
+		ids[i] = ev.ID
+		ph[i] = "?"
+	}
+	q := `SELECT event_id, deleted, display_body FROM message_state WHERE event_id IN (` + strings.Join(ph, ",") + `)`
+	rows, err := s.db.QueryContext(ctx, q, ids...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	byID := map[string]MessageState{}
+	for rows.Next() {
+		var st MessageState
+		var deleted int
+		if err := rows.Scan(&st.EventID, &deleted, &st.DisplayBody); err != nil {
+			return err
+		}
+		st.Deleted = deleted == 1
+		byID[st.EventID] = st
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range evs {
+		st, ok := byID[evs[i].ID]
+		if !ok {
+			continue
+		}
+		evs[i].Deleted = st.Deleted
+		if len(st.DisplayBody) > 0 {
+			evs[i].DisplayBody = string(st.DisplayBody)
+		}
+	}
+	return nil
 }
 
 func eventWhere(f EventFilter) (string, []any) {

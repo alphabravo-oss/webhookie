@@ -214,9 +214,16 @@ export function MockWorkspace({
     const es = new EventSource('/api/v1/events/stream');
     es.addEventListener('webhook', (msg) => {
       const ev = JSON.parse((msg as MessageEvent).data) as Event;
-      if (ev.sinkId === active.sinkId) {
-        setEvents((prev) => [...prev.filter((e) => e.id !== ev.id), ev]);
-      }
+      if (ev.sinkId !== active.sinkId) return;
+      setEvents((prev) => {
+        const i = prev.findIndex((e) => e.id === ev.id);
+        if (i >= 0) {
+          const next = prev.slice();
+          next[i] = ev;
+          return next;
+        }
+        return [...prev, ev];
+      });
     });
     return () => es.close();
   }, [active?.sinkId, active, ws?.id]);
@@ -356,35 +363,44 @@ export function MockWorkspace({
                     }
                   />
                 ) : (
-                  events.map((ev) => (
+                  events
+                    .filter((ev) => ev.path === active.path)
+                    .map((ev) => (
                     <article key={ev.id} className="flex gap-3">
                       <BotMark provider={provider} />
                       <div className="min-w-0 flex-1 space-y-1">
                         <p className="text-[11px] opacity-60">
                           webhookie · {formatRelativeTime(ev.receivedAt)}
                           {ev.valid ? '' : ' · invalid'}
+                          {ev.deleted ? ' · deleted' : ''}
                         </p>
+                        {ev.deleted ? (
+                          <p className="text-sm italic opacity-60">This message was deleted.</p>
+                        ) : (
+                          <>
                         {provider === 'slack' && (
-                          <SlackPreview body={ev.body} taken={takenFor(ev.id)} onAction={(a) => act(ev.id, 'button', a)} />
+                          <SlackPreview body={ev.displayBody || ev.body} taken={takenFor(ev.id)} onAction={(a) => act(ev.id, 'button', a)} />
                         )}
                         {provider === 'teams' && (
-                          <TeamsPreview body={ev.body} taken={takenFor(ev.id)} onAction={(a) => act(ev.id, 'submit', a)} />
+                          <TeamsPreview body={ev.displayBody || ev.body} taken={takenFor(ev.id)} onAction={(a) => act(ev.id, 'submit', a)} />
                         )}
                         {provider === 'discord' && (
-                          <DiscordPreview body={ev.body} taken={takenFor(ev.id)} onAction={(a) => act(ev.id, 'button', a)} />
+                          <DiscordPreview body={ev.displayBody || ev.body} taken={takenFor(ev.id)} onAction={(a) => act(ev.id, 'button', a)} />
                         )}
                         {provider === 'telegram' && (
-                          <TelegramPreview body={ev.body} taken={takenFor(ev.id)} onAction={(a) => act(ev.id, 'button', a)} />
+                          <TelegramPreview body={ev.displayBody || ev.body} taken={takenFor(ev.id)} onAction={(a) => act(ev.id, 'button', a)} />
                         )}
                         {provider === 'googlechat' && (
-                          <GoogleChatPreview body={ev.body} taken={takenFor(ev.id)} onAction={(a) => act(ev.id, 'submit', a)} />
+                          <GoogleChatPreview body={ev.displayBody || ev.body} taken={takenFor(ev.id)} onAction={(a) => act(ev.id, 'submit', a)} />
                         )}
                         {provider === 'mattermost' && (
                           <MattermostPreview
-                            body={ev.body}
+                            body={ev.displayBody || ev.body}
                             taken={takenFor(ev.id)}
                             onAction={(a) => act(ev.id, 'button', a)}
                           />
+                        )}
+                          </>
                         )}
                       </div>
                     </article>
