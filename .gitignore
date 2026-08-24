@@ -5,6 +5,7 @@ data/
 *.db-shm
 .env
 frontend/node_modules/
+scripts/node_modules/
 frontend/dist/
 frontend/tsconfig.tsbuildinfo
 .DS_Store

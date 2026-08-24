@@ -19,6 +19,16 @@ docker run --rm -p 8080:8080 \
 
 Open http://localhost:8080
 
+## Screenshots
+
+**Inbox** — packet log of every capture (`/`).
+
+<img src="docs/screenshots/inbox.png" alt="Inbox with captured Slack, PagerDuty, Opsgenie, and other webhook events" width="1920">
+
+**Slack destination** — `#alerts` operator view (`/slack/ch-slack-alerts`).
+
+<img src="docs/screenshots/slack-alerts.png" alt="Slack mock destination showing incoming messages and Approve or Deny buttons" width="1920">
+
 ## What it is
 
 | Face | What you use it for |
